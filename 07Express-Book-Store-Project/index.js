@@ -13,6 +13,11 @@ const Books_DB = [
 // middlewares (Plugins)
 app.use(express.json()); // this a plugin if some data is comming and it is a header (application/json) it will do the all transformation for me and give me the actuall data in the request.body
 
+app.use((req, res, next) => {
+    const log = `\n[${Date.now()}] ${req.method} ${req.path}`;
+    fs.appendFileSync('log.txt', log, 'utf-8');
+    next();
+});
 
 // Routes
 app.get('/books', (req, res) => {
