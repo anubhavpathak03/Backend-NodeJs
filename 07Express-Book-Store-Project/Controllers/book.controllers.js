@@ -1,58 +1,80 @@
-const { Books_DB } = require('../models/books');
+const { booksTable } = require('../models/books.models');
+const {authorTable} = require('../models/authors.models')
+const db = require('../db');
+const { sql } = require('drizzle-orm');
+const { eq, ilike } = require('drizzle-orm')
 
-exports.getAllBooks = function(req, res) {
-    res.json(Books_DB);
+
+exports.getAllBooks = async function(req, res) {
+    const search = req.query.search;
+    if(search) {
+        const books = await db
+            .select()
+            .from(booksTable)
+            .where(sql`to_tsvector('english', ${booksTable.title}) @@ to_tsquery('english', ${search})`);
+        return res.json(books);
+    }
+    try {
+        const books = await db.select().from(booksTable);
+        return res.status(200).json({data: books, error: null});
+    } catch (error) {
+        console.error('Error fetching books:', error);
+        return res.status(500).json({ data: null, error: 'Internal server error' });
+    }
 }
 
 
-exports.getAllBooks_ByID = (req, res) => {
-    const id = parseInt(req.params.id);
-
-    if(isNaN(id)) {
-        // its means it is bad request 
-        res.status(400).json({error : `Id must be type of number`})
+exports.getAllBooks_ByID = async (req, res) => {
+    const id = req.params.id;
+    try {
+        const [book] = await db
+            .select()
+            .from(booksTable)
+            .where((table) => eq(table.id, id))
+            .leftJoin(authorTable, eq(booksTable.authorId, authorTable.id))
+            .limit(1); // Select * from book where id = {id}
+        if(!book) {
+            return res.status(404).json({error: `book with id ${id} does not exist`});
+        }
+        return res.status(200).json({data: book, error: null});
+    } catch (error) {
+        console.error('Error fetching books:', error);
+        return res.status(500).json({ data: null, error: 'Internal server error' }); 
     }
-
-    const book = Books_DB.find((e) => e.id == id); // Select * from book where id = {id}
-    if(!book) {
-        return res.status(404).json({error: `book with id ${id} does not exist`});
-    }
-    return res.json(book);
 }
 
 
-exports.createNewBooks = (req, res) => {
-    const {title, author} = req.body; // here we extract some data from body
+exports.createNewBooks = async (req, res) => {
+    const {title, authorId, description} = req.body; // here we extract some data from body
     if(!title || title === '') {
-        return res.status(400).json({error: 'title is required'})
+        return res.status(400).json({data: null, error: 'title is required'})
     }
-    if(!author|| author === '') {
-        return res.status(400).json({error: 'author is required'})
-    }
+    
 
-    const id = Books_DB.length + 1;
+    const [result] = await db.insert(booksTable).values({
+        title,
+        authorId,
+        description,
+    }).returning({
+        id: booksTable.id
+    });
 
-    const book = {id, title, author};
-    // Avoid mutating the imported Books_DB directly
-    // const updatedBooks = [...Books_DB, book];
-    Books_DB.push(book)
-    // Optionally, you can update the export or handle persistence here
-
-    return res.status(201).json({message : `A new Book is added in the list id is ${id}`});
+    return res.status(201).json({message : "Books Created Successfully", id: result.id});
 }
 
 
 
-exports.deleteBooks_ByID = (req, res) => {
-    const id = parseInt(req.params.id);
-    if(isNaN(id)) {
-        // its means it is bad request 
-        res.status(400).json({error : `Id must be type of number`})
-    } 
-    const indexToDelete = Books_DB.findIndex(e => e.id === id);
-    if(indexToDelete < 0) {
-       return res.status(404).json({error: `book with id ${id} does not exist`}); 
+exports.deleteBooks_ByID = async (req, res) => {
+    const id = req.params.id;
+
+    try {
+        const [result] = await db.delete(booksTable).where(eq(booksTable.id, id)).returning({ id: booksTable.id });
+        if (!result) {
+            return res.status(404).json({ error: `Book with id ${id} does not exist` });
+        }
+        return res.status(201).json({message : "Books Deleted Successfully", id: result.id});
+    } catch (error) {
+        console.error('Error deleting book:', error);
+        return res.status(500).json({ data: null, error: 'Internal server error' });
     }
-    Books_DB.splice(indexToDelete, 1);
-    return res.status(200).json({message: `book deleted`})
 }
